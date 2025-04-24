@@ -4,6 +4,9 @@ import openpyxl
 import os
 import requests
 import win32com.client
+import ssl
+import json
+import urllib
 
 class ExcelMapperApp:
     def __init__(self, root):
@@ -243,11 +246,15 @@ class ExcelMapperApp:
             
             try:
                 # 1. Excel URL'lerini al
+
+                context = ssl._create_unverified_context()
                 url = f'https://www.kap.org.tr/tr/api/company-detail/sgbf-data/{company_id}/FR/365'
-                response = requests.get(url)
-                disclosures = response.json()
+                response = urllib.request.urlopen(url.replace('\n',''), context = context)
+                disclosures = json.loads(response.read())
                 real_disclosures = []
                 self.log(f'Şirket Bildirimleri Alınıyor : {company_id}')
+                company_name = str(disclosures[0]['disclosureBasic']['companyTitle'])
+                os.makedirs(f'{save_folder}/{company_name}')
                 # Uygun raporları filtrele
                 for disclosure in disclosures:
                     if disclosure['disclosureBasic']['title'] == 'Faaliyet Raporu (Konsolide Olmayan)' or disclosure['disclosureBasic']['title'] == 'Finansal Rapor':
@@ -276,7 +283,7 @@ class ExcelMapperApp:
                 # 2. Excel dosyalarını indir
                 for url in excel_urls:
                     not_id = url.split('/')[-1]
-                    file_name = f'Bildirim_{not_id}.xls'
+                    file_name = f'{company_name}/Bildirim_{not_id}.xls'
                     save_path = os.path.join(save_folder, file_name)
 
                     headers = {
@@ -284,23 +291,15 @@ class ExcelMapperApp:
                     }
 
                     try:
-                        response = requests.get(url, headers=headers)
-
-                        if response.status_code == 200:
-                            with open(save_path, 'wb') as file:
-                                file.write(response.content)
-                            print(f'Excel Indirildi: {not_id}')
-                            self.log(f'Excel Indirildi : {not_id}')
-                        else:
-                            print(f'Excel Indirilemedi: {not_id}')
-                            self.log(f'Excel Indirilemedi : {not_id}')
-
+                        content = urllib.request.urlopen(url.replace('\n',''), context = context)
+                        with open(save_path, 'wb') as file:
+                            file.write(content.read())
                     except Exception as e:
                         print(f'{e}')
 
                     # 3. İndirilen .xls dosyalarını .xlsx'e çevir
-                    xls_path = os.path.join(save_folder, f"Bildirim_{not_id}.xls")
-                    xlsx_path = os.path.join(save_folder, f"Bildirim_{not_id}.xlsx")
+                    xls_path = os.path.join(save_folder, f"{company_name}/Bildirim_{not_id}.xls")
+                    xlsx_path = os.path.join(save_folder, f"{company_name}/Bildirim_{not_id}.xlsx")
 
                     if os.path.exists(xls_path):
                         try:
