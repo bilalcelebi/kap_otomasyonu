@@ -69,7 +69,7 @@ class ExcelMapperApp:
         tk.Button(self.root, text="Raporları Çek", command=self.raporlari_cek).grid(
             row=8, column=0, padx=10, pady=5, sticky="ew"
         )
-
+        
         self.kaynak_ekle_button = tk.Button(self.root, text="Kaynak Ekle", command=self.kaynak_penceresi_ac)
         self.kaynak_ekle_button.grid(
             row=8, column=1, padx=10, pady=5, sticky="ew"
@@ -77,7 +77,7 @@ class ExcelMapperApp:
 
         self.info_text = tk.Text(self.root, height=4, width=50, state='disabled', bg="#f0f0f0")
         self.info_text.grid(row=9, column=0, columnspan=2, padx=10, pady=5)
-    
+        
     def initialize_files(self):
         if not os.path.exists("log.txt"):
             with open("log.txt", "w", encoding="utf-8") as f:
@@ -279,6 +279,39 @@ class ExcelMapperApp:
                 if not excel_urls:
                     print(f"🔍 {company_id} için uygun bildirim bulunamadı.")
                     continue
+
+                pdf_urls = []
+                for _id in notification_ids:
+                    pdf_url = f'https://www.kap.org.tr/tr/api/BildirimPdf/{_id}'
+                    if pdf_url not in pdf_urls:
+                        pdf_urls.append(pdf_url)
+
+                self.log(f'PDFler Toplandı : {company_id}')
+
+                if not pdf_urls:
+                    print(f"🔍 {company_id} için uygun bildirim pdfler bulunamadı.")
+                    continue
+
+                for url in pdf_urls:
+
+                    not_id = url.split('/')[-1]
+                    file_name = f'{company_name}/Bildirim_{not_id}.pdf'
+                    save_path = os.path.join(save_folder, file_name)
+
+                    headers = {
+                    "User-Agent":"Mozilla/5.0"
+                    }
+
+                    try:
+                        content = urllib.request.urlopen(url.replace('\n',''), context = context)
+                        with open(save_path, 'wb') as file:
+                            file.write(content.read())
+
+                    except Exception as e:
+                        print(f'{e}')
+
+                    self.log(f"{url} alındı...")
+                    print(f"{url} alındı...")
 
                 # 2. Excel dosyalarını indir
                 for url in excel_urls:
