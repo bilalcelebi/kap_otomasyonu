@@ -6,7 +6,9 @@ import requests
 import win32com.client
 import ssl
 import json
+from bs4 import BeautifulSoup as bs
 import urllib
+from parsing_website import download_pdf
 
 class ExcelMapperApp:
     def __init__(self, root):
@@ -48,7 +50,11 @@ class ExcelMapperApp:
         self.mapping_text.grid(row=3, column=0, columnspan=2, padx=10, pady=5)
 
         tk.Button(self.root, text="Biçimlendir (-> Ekle)", command=self.format_arrows).grid(
-            row=4, column=0, columnspan=2, pady=5
+            row=4, column=0, padx=10, pady=5, sticky="ew", #columnspan=2
+        )
+
+        tk.Button(self.root, text="Logları Göster", command=self.show_logs).grid(
+            row=4, column=1, padx=10, pady=5, sticky="ew"
         )
 
         tk.Button(self.root, text="Eşleşmeleri Kaydet (.txt)", command=self.save_mappings).grid(
@@ -58,7 +64,7 @@ class ExcelMapperApp:
             row=5, column=1, padx=10, pady=5, sticky="ew"
         )
 
-        tk.Button(self.root, text="Logları Göster", command=self.show_logs).grid(
+        tk.Button(self.root, text="Raporları Çek", command=self.raporlari_cek).grid(
             row=6, column=0, columnspan=2, padx=10, pady=5, sticky="ew"
         )
 
@@ -66,9 +72,9 @@ class ExcelMapperApp:
             row=7, column=0, columnspan=2, padx=10, pady=10, sticky="ew"
         )
 
-        tk.Button(self.root, text="Raporları Çek", command=self.raporlari_cek).grid(
-            row=8, column=0, padx=10, pady=5, sticky="ew"
-        )
+        tk.Button(self.root, text = "Oto Aktarım").grid(
+            row=8, column=0, padx=10, pady=10, sticky="ew")
+        
         
         self.kaynak_ekle_button = tk.Button(self.root, text="Kaynak Ekle", command=self.kaynak_penceresi_ac)
         self.kaynak_ekle_button.grid(
@@ -77,7 +83,7 @@ class ExcelMapperApp:
 
         self.info_text = tk.Text(self.root, height=4, width=50, state='disabled', bg="#f0f0f0")
         self.info_text.grid(row=9, column=0, columnspan=2, padx=10, pady=5)
-        
+    
     def initialize_files(self):
         if not os.path.exists("log.txt"):
             with open("log.txt", "w", encoding="utf-8") as f:
@@ -227,7 +233,39 @@ class ExcelMapperApp:
         target_wb.save(self.target_file)
         messagebox.showinfo("Tamamlandı", "Veriler başarıyla aktarıldı.")
         self.log("Transfer Işlemi Tamamlandı.")
-        
+    
+    def ekleri_cek(self, notifican_id, download_path):
+
+        context = ssl._create_unverified_context()
+        url = f'https://www.kap.org.tr/tr/Bildirim/{notifican_id}'
+
+        response = urllib.request.urlopen(url.replace('\n',''), context = context)
+        content = response.read()
+
+        soup = bs(content, 'html.parser')
+        links = soup.find_all('a')
+        print([link['href'] for link in links])
+
+        ekler = []
+
+        for link in links:
+            href = link['href']
+            if 'https://www.kap.org.tr/tr/api/file/download/' in href:
+                print(href)
+                ekler.append(href)
+
+        for ek in ekler:
+            ek_response = urllib.request.urlopen(ek.replace('\n',''), context = context)
+            ek_content = ek_response.read()
+
+            file_name = ek.strip('/')[-1]
+            os.path.join(download_path, file_name)
+
+            with open(file_name, 'wb') as file:
+                file.write(ek_content)
+
+            self.log(f"Ek Kaydedildi - {download_path}")
+
 
     def raporlari_cek(self):
         # Mutlak yol kullanarak Reports klasörünü oluştur
@@ -254,7 +292,7 @@ class ExcelMapperApp:
                 real_disclosures = []
                 self.log(f'Şirket Bildirimleri Alınıyor : {company_id}')
                 company_name = str(disclosures[0]['disclosureBasic']['companyTitle'])
-                os.makedirs(f'{save_folder}/{company_name}')
+                os.makedirs(f'{save_folder}/{company_name}', exist_ok = True)
                 # Uygun raporları filtrele
                 for disclosure in disclosures:
                     if disclosure['disclosureBasic']['title'] == 'Faaliyet Raporu (Konsolide Olmayan)' or disclosure['disclosureBasic']['title'] == 'Finansal Rapor':
@@ -270,6 +308,8 @@ class ExcelMapperApp:
                 # Excel URL'lerini al
                 excel_urls = []
                 for _id in notification_ids:
+                    notification_path = os.path.join(f"{save_folder}/{company_name}", str(_id))
+                    os.makedirs(notification_path, exist_ok = True)
                     excel_url = f'https://www.kap.org.tr/tr/api/notification/export/excel/{_id}'
                     if excel_url not in excel_urls:
                         excel_urls.append(excel_url)
@@ -280,43 +320,18 @@ class ExcelMapperApp:
                     print(f"🔍 {company_id} için uygun bildirim bulunamadı.")
                     continue
 
-                pdf_urls = []
-                for _id in notification_ids:
-                    pdf_url = f'https://www.kap.org.tr/tr/api/BildirimPdf/{_id}'
-                    if pdf_url not in pdf_urls:
-                        pdf_urls.append(pdf_url)
-
-                self.log(f'PDFler Toplandı : {company_id}')
-
-                if not pdf_urls:
-                    print(f"🔍 {company_id} için uygun bildirim pdfler bulunamadı.")
-                    continue
-
-                for url in pdf_urls:
-
-                    not_id = url.split('/')[-1]
-                    file_name = f'{company_name}/Bildirim_{not_id}.pdf'
-                    save_path = os.path.join(save_folder, file_name)
-
-                    headers = {
-                    "User-Agent":"Mozilla/5.0"
-                    }
-
+                for not_id in notification_ids:
                     try:
-                        content = urllib.request.urlopen(url.replace('\n',''), context = context)
-                        with open(save_path, 'wb') as file:
-                            file.write(content.read())
-
+                        save_path = os.path.join(f"{save_folder}\\{company_name}", str(not_id))
+                        download_pdf(not_id, save_path)
                     except Exception as e:
                         print(f'{e}')
-
-                    self.log(f"{url} alındı...")
-                    print(f"{url} alındı...")
+                        continue
 
                 # 2. Excel dosyalarını indir
                 for url in excel_urls:
                     not_id = url.split('/')[-1]
-                    file_name = f'{company_name}/Bildirim_{not_id}.xls'
+                    file_name = f'{company_name}/{not_id}/Bildirim_{not_id}.xls'
                     save_path = os.path.join(save_folder, file_name)
 
                     headers = {
@@ -331,8 +346,8 @@ class ExcelMapperApp:
                         print(f'{e}')
 
                     # 3. İndirilen .xls dosyalarını .xlsx'e çevir
-                    xls_path = os.path.join(save_folder, f"{company_name}/Bildirim_{not_id}.xls")
-                    xlsx_path = os.path.join(save_folder, f"{company_name}/Bildirim_{not_id}.xlsx")
+                    xls_path = os.path.join(save_folder, f"{company_name}/{not_id}/Bildirim_{not_id}.xls")
+                    xlsx_path = os.path.join(save_folder, f"{company_name}/{not_id}/Bildirim_{not_id}.xlsx")
 
                     if os.path.exists(xls_path):
                         try:
@@ -358,6 +373,18 @@ class ExcelMapperApp:
                 print(f"🚨 Hata oluştu ({company_id}): {e}")
 
 
+
+        def oto_aktar(self):
+
+            company_ids = []
+
+            with open("kaynaklar.txt", "r") as f:
+                for line in list(f.readlines()):
+                    if str(line) not in company_ids:
+                        company_ids.append(str(line))
+
+
+            
 
 
 
